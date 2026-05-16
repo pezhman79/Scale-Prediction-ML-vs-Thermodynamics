@@ -83,7 +83,7 @@ Gain‑based feature importance is extracted for the tree‑based models (Random
 XGBoost). The top 15 features are displayed; they highlight the most influential
 physicochemical parameters.
 
-![Feature Importance](images/feature_importance_comparison.png)
+![Feature Importance](images/feature importance.png)
 
 *Insert the `feature_importance_comparison.png` image.*
 
