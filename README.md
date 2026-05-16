@@ -96,4 +96,3 @@ the thermodynamic rules. The side‑by‑side confusion matrices reveal the trad
 data‑driven and physics‑based approaches.
 
 ![Thermodynamic Confusion Matrix](images/thermo_confusion_matrix.png)
-ucture
