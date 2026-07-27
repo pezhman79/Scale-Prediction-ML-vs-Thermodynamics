@@ -91,42 +91,42 @@ The full per-class classification report for every model (precision/recall/F1/su
 
 ## Images
 
-### Fig. 4 — Per-Class Classification Performance
+### Fig. 1 — Per-Class Classification Performance
 Precision, recall, and F1-score for the "No Scale" and "Scale" classes, disaggregated by model. Recall for "Scale" is high across all models, while "No Scale" recall is markedly lower, reflecting a systematic bias toward over-predicting scale occurrence — most pronounced for the thermodynamic baseline.
 
 <div align="center">
   <img src="images/fig4_per_class_performance.png" alt="Per-class classification performance" width="85%"/>
 </div>
 
-### Fig. 5 — Confusion Matrices
+### Fig. 2 — Confusion Matrices
 Confusion matrices for the thermodynamic model and all five ML models on the held-out test set. Random Forest produced zero false negatives, matching the thermodynamic baseline's safety profile while achieving far fewer false positives.
 
 <div align="center">
   <img src="images/fig5_confusion_matrices.png" alt="Confusion matrices — all models" width="85%"/>
 </div>
 
-### Fig. 6 — Effect of ADASYN Resampling
+### Fig. 3 — Effect of ADASYN Resampling
 Accuracy, F1-score, and ROC-AUC for all five ML models, with and without ADASYN oversampling during training, evaluated on the same untouched test set. ADASYN consistently improved every metric, with the largest gains in F1-score.
 
 <div align="center">
   <img src="images/fig6_adasyn_effect.png" alt="Effect of ADASYN resampling" width="85%"/>
 </div>
 
-### Fig. 7 — ADASYN Effect on Random Forest's Confusion Matrix
+### Fig. 4 — ADASYN Effect on Random Forest's Confusion Matrix
 Confusion matrices for Random Forest trained with and without ADASYN. Both configurations preserved zero false negatives; training with ADASYN halved the false-positive count for "No Scale."
 
 <div align="center">
   <img src="images/fig7_rf_adasyn_confusion.png" alt="Random Forest confusion matrix — with vs. without ADASYN" width="70%"/>
 </div>
 
-### Fig. 8 — Permutation Feature Importance
+### Fig. 5 — Permutation Feature Importance
 Permutation importance (mean ROC-AUC drop) for all five ML models. Fe²⁺, Ba²⁺, CO₃²⁻, pressure, and temperature consistently rank among the top contributors across models, despite differences in relative ordering between the tree-based ensembles and the MLP.
 
 <div align="center">
   <img src="images/fig8_permutation_importance.png" alt="Permutation importance — all models" width="85%"/>
 </div>
 
-### Fig. 9 — SHAP Summary (Random Forest)
+### Fig. 6 — SHAP Summary (Random Forest)
 SHAP summary plot for Random Forest, the best-performing model, showing the direction and magnitude of each feature's contribution to the "Scale" class. Pressure shows the strongest influence, with low pressure driving positive contributions toward scale prediction; Fe²⁺ shows a clear separation, with elevated concentrations increasing predicted scale likelihood.
 
 <div align="center">
