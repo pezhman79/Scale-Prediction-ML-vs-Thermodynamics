@@ -89,35 +89,49 @@ The full per-class classification report for every model (precision/recall/F1/su
 
 ---
 
-## Visualisations
+## Images
 
-The pipeline produces the following figures (each saved twice: once from the first training pass, once reproduced from the reloaded saved models, with a `_reloaded` / `_reproduced` suffix):
+### Fig. 4 — Per-Class Classification Performance
+Precision, recall, and F1-score for the "No Scale" and "Scale" classes, disaggregated by model. Recall for "Scale" is high across all models, while "No Scale" recall is markedly lower, reflecting a systematic bias toward over-predicting scale occurrence — most pronounced for the thermodynamic baseline.
 
-### A2 · AI Models vs. Thermodynamic Baseline
-Horizontal bar comparison across Accuracy, Precision, Recall, and F1 for all six models side by side.
-`A2_ai_vs_thermo_all_metrics.png`
+<div align="center">
+  <img src="images/fig4_per_class_performance.png" alt="Per-class classification performance" width="85%"/>
+</div>
 
-### B · Combined Confusion Matrices
-One panel per model (all 6), showing predicted vs. actual scale classification on the test set.
-`B_confusion_matrices_combined.png`
+### Fig. 5 — Confusion Matrices
+Confusion matrices for the thermodynamic model and all five ML models on the held-out test set. Random Forest produced zero false negatives, matching the thermodynamic baseline's safety profile while achieving far fewer false positives.
 
-### C · ADASYN Resampling Effect
-- **C1** — grouped bar chart of Accuracy / F1 / ROC-AUC, with vs. without ADASYN, for all 5 ML models.
-- **C2** — confusion-matrix comparison for the single best-performing model, with vs. without ADASYN.
+<div align="center">
+  <img src="images/fig5_confusion_matrices.png" alt="Confusion matrices — all models" width="85%"/>
+</div>
 
-`C1_adasyn_comparison.png`, `C2_best_model_cm_adasyn_vs_none.png`
+### Fig. 6 — Effect of ADASYN Resampling
+Accuracy, F1-score, and ROC-AUC for all five ML models, with and without ADASYN oversampling during training, evaluated on the same untouched test set. ADASYN consistently improved every metric, with the largest gains in F1-score.
 
-### D · Combined ROC-AUC Curves
-ROC curves for all 6 models (5 ML + thermodynamic) overlaid on one axis with AUC in the legend.
-`D_roc_curves_all_models.png`
+<div align="center">
+  <img src="images/fig6_adasyn_effect.png" alt="Effect of ADASYN resampling" width="85%"/>
+</div>
 
-### E · Permutation Importance
-Top-10 permutation importance (mean ROC-AUC drop) for each of the 5 ML models, one combined multi-panel figure.
-`E_permutation_importance_all_models.png`
+### Fig. 7 — ADASYN Effect on Random Forest's Confusion Matrix
+Confusion matrices for Random Forest trained with and without ADASYN. Both configurations preserved zero false negatives; training with ADASYN halved the false-positive count for "No Scale."
 
-### F · SHAP Analysis (Best Model Only)
-SHAP summary (beeswarm) and bar-importance plots for the single best-performing ML model, restricted to the `Scale` class.
-`F_shap_summary_best_model.png`, `F_shap_bar_best_model.png`
+<div align="center">
+  <img src="images/fig7_rf_adasyn_confusion.png" alt="Random Forest confusion matrix — with vs. without ADASYN" width="70%"/>
+</div>
+
+### Fig. 8 — Permutation Feature Importance
+Permutation importance (mean ROC-AUC drop) for all five ML models. Fe²⁺, Ba²⁺, CO₃²⁻, pressure, and temperature consistently rank among the top contributors across models, despite differences in relative ordering between the tree-based ensembles and the MLP.
+
+<div align="center">
+  <img src="images/fig8_permutation_importance.png" alt="Permutation importance — all models" width="85%"/>
+</div>
+
+### Fig. 9 — SHAP Summary (Random Forest)
+SHAP summary plot for Random Forest, the best-performing model, showing the direction and magnitude of each feature's contribution to the "Scale" class. Pressure shows the strongest influence, with low pressure driving positive contributions toward scale prediction; Fe²⁺ shows a clear separation, with elevated concentrations increasing predicted scale likelihood.
+
+<div align="center">
+  <img src="images/fig9_shap_summary_rf.png" alt="SHAP summary plot — Random Forest" width="75%"/>
+</div>
 
 ---
 
@@ -127,16 +141,13 @@ SHAP summary (beeswarm) and bar-importance plots for the single best-performing 
 .
 ├── scale_prediction_results_pipeline.py   # main pipeline: train, tune, evaluate, save, reload, verify
 ├── reproduce.py                           # standalone: reload saved models -> regenerate all figures + bootstrap CIs
-├── saved_models/                          # created on first run — fitted pipelines + results bundle
-│   ├── Random_Forest_pipeline.joblib
-│   ├── Random_Forest_no_adasyn_pipeline.joblib
-│   ├── Extra_Trees_pipeline.joblib
-│   ├── ...
-│   └── results_bundle.joblib
-├── final_results_table.csv
-├── classification_reports.xlsx
-├── bootstrap_ci_table.csv                 # produced by reproduce.py
-└── *.png                                  # all figures listed above
+└── images/                                # figures referenced above
+    ├── fig4_per_class_performance.png
+    ├── fig5_confusion_matrices.png
+    ├── fig6_adasyn_effect.png
+    ├── fig7_rf_adasyn_confusion.png
+    ├── fig8_permutation_importance.png
+    └── fig9_shap_summary_rf.png
 ```
 
 ---
