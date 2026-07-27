@@ -70,20 +70,20 @@ All models are evaluated on the held-out test set across seven metrics: Accuracy
 
 <div align="center">
 
-| Model | Accuracy | Precision | Recall | Specificity | F1 | MCC | ROC-AUC |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **XGBoost** | — | — | — | — | — | — | — |
-| LightGBM | — | — | — | — | — | — | — |
-| Extra Trees | — | — | — | — | — | — | — |
-| Random Forest | — | — | — | — | — | — | — |
-| MLP | — | — | — | — | — | — | — |
-| Thermodynamic | — | — | — | — | — | — | — |
+Results
 
-*(populate from `final_results_table.csv` / `classification_reports.xlsx` after running the pipeline)*
+All models are evaluated on the held-out test set across seven metrics: Accuracy, Precision, Recall, Specificity, F1, MCC, and ROC-AUC.
 
-</div>
+<div align="center">
+Model	Accuracy	Precision	Recall	F1	ROC-AUC
+Random Forest	0.962 (0.924–0.990)	0.958 (0.911–0.990)	1.000 (1.000–1.000)	0.959 (0.910–0.990)	0.997 (0.987–1.000)
+LightGBM	0.952 (0.905–0.990)	0.958 (0.912–0.990)	0.989 (0.966–1.000)	0.950 (0.897–0.990)	0.989 (0.970–1.000)
+XGBoost	0.952 (0.905–0.990)	0.957 (0.910–0.990)	0.989 (0.966–1.000)	0.950 (0.897–0.990)	0.989 (0.969–1.000)
+Extra Trees	0.952 (0.905–0.990)	0.967 (0.924–1.000)	0.978 (0.944–1.000)	0.952 (0.903–0.990)	0.987 (0.964–1.000)
+MLP	0.952 (0.914–0.990)	0.978 (0.943–1.000)	0.968 (0.928–1.000)	0.953 (0.911–0.990)	0.952 (0.897–0.993)
+Thermodynamic	0.895 (0.829–0.952)	0.892 (0.825–0.951)	1.000 (1.000–1.000)	0.862 (0.773–0.936)	0.616 (0.427–0.796)
 
-The full per-class classification report for every model (precision/recall/F1/support) is exported to `classification_reports.xlsx`, one sheet per model, alongside a formatted summary sheet.
+Values are bootstrap mean (95% CI, n = 2000 resamples), computed by reproduce.py from the saved test-set predictions. Ranked by ROC-AUC.
 
 ---
 
