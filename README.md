@@ -70,20 +70,22 @@ All models are evaluated on the held-out test set across seven metrics: Accuracy
 
 <div align="center">
 
-Results
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Random Forest** | **0.962** (0.924–0.990) | 0.958 (0.911–0.990) | 1.000 (1.000–1.000) | **0.959** (0.910–0.990) | **0.997** (0.987–1.000) |
+| LightGBM | 0.952 (0.905–0.990) | 0.958 (0.912–0.990) | 0.989 (0.966–1.000) | 0.950 (0.897–0.990) | 0.989 (0.970–1.000) |
+| XGBoost | 0.952 (0.905–0.990) | 0.957 (0.910–0.990) | 0.989 (0.966–1.000) | 0.950 (0.897–0.990) | 0.989 (0.969–1.000) |
+| Extra Trees | 0.952 (0.905–0.990) | 0.967 (0.924–1.000) | 0.978 (0.944–1.000) | 0.952 (0.903–0.990) | 0.987 (0.964–1.000) |
+| MLP | 0.952 (0.914–0.990) | 0.978 (0.943–1.000) | 0.968 (0.928–1.000) | 0.953 (0.911–0.990) | 0.952 (0.897–0.993) |
+| Thermodynamic | 0.895 (0.829–0.952) | 0.892 (0.825–0.951) | 1.000 (1.000–1.000) | 0.862 (0.773–0.936) | 0.616 (0.427–0.796) |
 
-All models are evaluated on the held-out test set across seven metrics: Accuracy, Precision, Recall, Specificity, F1, MCC, and ROC-AUC.
+*Values are bootstrap mean (95% CI, n = 2000 resamples), computed by `reproduce.py` from the saved test-set predictions. Ranked by ROC-AUC.*
 
-<div align="center">
-Model	Accuracy	Precision	Recall	F1	ROC-AUC
-Random Forest	0.962 (0.924–0.990)	0.958 (0.911–0.990)	1.000 (1.000–1.000)	0.959 (0.910–0.990)	0.997 (0.987–1.000)
-LightGBM	0.952 (0.905–0.990)	0.958 (0.912–0.990)	0.989 (0.966–1.000)	0.950 (0.897–0.990)	0.989 (0.970–1.000)
-XGBoost	0.952 (0.905–0.990)	0.957 (0.910–0.990)	0.989 (0.966–1.000)	0.950 (0.897–0.990)	0.989 (0.969–1.000)
-Extra Trees	0.952 (0.905–0.990)	0.967 (0.924–1.000)	0.978 (0.944–1.000)	0.952 (0.903–0.990)	0.987 (0.964–1.000)
-MLP	0.952 (0.914–0.990)	0.978 (0.943–1.000)	0.968 (0.928–1.000)	0.953 (0.911–0.990)	0.952 (0.897–0.993)
-Thermodynamic	0.895 (0.829–0.952)	0.892 (0.825–0.951)	1.000 (1.000–1.000)	0.862 (0.773–0.936)	0.616 (0.427–0.796)
+</div>
 
-Values are bootstrap mean (95% CI, n = 2000 resamples), computed by reproduce.py from the saved test-set predictions. Ranked by ROC-AUC.
+**Random Forest** is the best-performing model by ROC-AUC (0.997), with Extra Trees, XGBoost, and LightGBM clustering closely behind (0.987–0.989). All five ML models decisively outperform the thermodynamic baseline, whose ROC-AUC (0.616) reflects strong recall but poor discriminative separation — it flags nearly every sample as `Scale`, which drives Recall to 1.000 but caps its ROC-AUC and F1 well below any ML model.
+
+The full per-class classification report for every model (precision/recall/F1/support) is exported to `classification_reports.xlsx`, one sheet per model, alongside a formatted summary sheet.
 
 ---
 
@@ -125,8 +127,16 @@ SHAP summary (beeswarm) and bar-importance plots for the single best-performing 
 .
 ├── scale_prediction_results_pipeline.py   # main pipeline: train, tune, evaluate, save, reload, verify
 ├── reproduce.py                           # standalone: reload saved models -> regenerate all figures + bootstrap CIs
-├── Images/                          # created on first run — fitted pipelines + results bundle
-│   ├── *.png                             # all figures listed above
+├── saved_models/                          # created on first run — fitted pipelines + results bundle
+│   ├── Random_Forest_pipeline.joblib
+│   ├── Random_Forest_no_adasyn_pipeline.joblib
+│   ├── Extra_Trees_pipeline.joblib
+│   ├── ...
+│   └── results_bundle.joblib
+├── final_results_table.csv
+├── classification_reports.xlsx
+├── bootstrap_ci_table.csv                 # produced by reproduce.py
+└── *.png                                  # all figures listed above
 ```
 
 ---
