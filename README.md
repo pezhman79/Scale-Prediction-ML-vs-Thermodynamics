@@ -176,9 +176,6 @@ This trains and Optuna-tunes all 5 ML models, evaluates everything against the t
 
 ```bash
 python reproduce.py
-```
-
-Loads the saved pipelines and results bundle, recomputes all metrics/figures from the fitted models, and additionally computes 2000-sample bootstrap 95% confidence intervals for Accuracy, Precision, Recall, F1, and ROC-AUC (`bootstrap_ci_table.csv`).
 
 ---
 
