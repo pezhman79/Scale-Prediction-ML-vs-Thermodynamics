@@ -125,16 +125,8 @@ SHAP summary (beeswarm) and bar-importance plots for the single best-performing 
 .
 ├── scale_prediction_results_pipeline.py   # main pipeline: train, tune, evaluate, save, reload, verify
 ├── reproduce.py                           # standalone: reload saved models -> regenerate all figures + bootstrap CIs
-├── saved_models/                          # created on first run — fitted pipelines + results bundle
-│   ├── Random_Forest_pipeline.joblib
-│   ├── Random_Forest_no_adasyn_pipeline.joblib
-│   ├── Extra_Trees_pipeline.joblib
-│   ├── ...
-│   └── results_bundle.joblib
-├── final_results_table.csv
-├── classification_reports.xlsx
-├── bootstrap_ci_table.csv                 # produced by reproduce.py
-└── *.png                                  # all figures listed above
+├── Images/                          # created on first run — fitted pipelines + results bundle
+│   ├── *.png                             # all figures listed above
 ```
 
 ---
