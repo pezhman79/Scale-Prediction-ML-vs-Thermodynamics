@@ -1,98 +1,174 @@
-# Scale Prediction: ML vs Thermodynamics
+<div align="center">
 
-Binary classification of **scale formation** (Inspection Result: 0 = No Scale, 1 = Scale)
-in oilfield production systems. The repository combines **machine learning** (Random Forest,
-XGBoost, SVM) with a **thermodynamic saturation index/ratio (SI/SR)** model, compares them,
-and delivers a production‑ready pipeline tuned with **Optuna** and robust to class imbalance
-(via **ADASYN**).
+# Mineral Scale Prediction — Thermodynamic Baseline vs. ML Ensemble
+
+*A reproducible machine-learning pipeline for binary scale-risk classification from*
+*produced-water chemistry, benchmarked against a physics-based thermodynamic saturation model.*
+
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-latest-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
+[![XGBoost](https://img.shields.io/badge/XGBoost-latest-337AB7?style=flat-square)](https://xgboost.readthedocs.io/)
+[![LightGBM](https://img.shields.io/badge/LightGBM-latest-9ACD32?style=flat-square)](https://lightgbm.readthedocs.io/)
+[![Optuna](https://img.shields.io/badge/Optuna-HPO-6DB3F2?style=flat-square)](https://optuna.org/)
+[![SHAP](https://img.shields.io/badge/SHAP-explainability-8A2BE2?style=flat-square)](https://shap.readthedocs.io/)
+
+</div>
 
 ---
 
 ## Overview
 
-Scale deposition (calcite, barite, celestite) is a major flow‑assurance challenge. This
-project uses a dataset of well conditions (temperature, pressure, pH, ion concentrations) to
-predict scale occurrence. The workflow:
+Mineral scaling — the precipitation of calcite, barite, and celestite from produced water — is a persistent flow-assurance hazard that can choke wellbores, foul surface facilities, and drive costly workover campaigns. Conventional risk screening relies on **thermodynamic saturation modeling** (Saturation Index / Saturation Ratio), which is physically grounded but often brittle in the field, since it depends on accurate activity-coefficient corrections and can miss risk regimes not captured by simple Ksp thresholds.
 
-- Trains three ML classifiers inside a leakage‑free pipeline (scaling → ADASYN → model)
-- Optimises hyperparameters with **Optuna** (maximising ROC‑AUC under 5‑fold stratified CV)
-- Applies a **thermodynamic model** based on calcite saturation index, barite and celestite
-  saturation ratios
-- Provides a comprehensive comparison of predictive performance
+This repository implements a full binary-classification pipeline that predicts scale occurrence (`Scale` vs. `No Scale`) directly from produced-water composition and P/T conditions, and benchmarks five tuned ML classifiers against a **naive thermodynamic saturation-index baseline** computed from first principles (ionic strength, Davies activity coefficients, temperature-dependent Ksp for calcite, barite, and celestite).
+
+The pipeline is self-contained end-to-end: it trains and tunes every model, evaluates everything on a held-out test set, **saves every fitted model to disk**, then reloads them from disk and reproduces every table and figure a second time — proving the saved artifacts alone are sufficient to regenerate the paper's results without repeating hyperparameter search.
 
 ---
 
 ## Methodology
 
-### Data Preprocessing
-- Features: T, P, pH, Ca, Ba, Sr, HCO₃, CO₃, SO₄, and additional fluid properties.
-- Target: binary `Inspection Result`.
-- Duplicates, missing values, and irrelevant columns are removed.
-- Train/test split: 75/25, stratified, `random_state=5`.
+### Thermodynamic Baseline
 
-### Handling Class Imbalance
-**ADASYN** (Adaptive Synthetic Sampling) is applied **only inside the cross‑validation loop**
-via `imblearn.pipeline.Pipeline` to prevent data leakage. The same pipeline is used for all
-base models.
+A naive Saturation Index (calcite) / Saturation Ratio (barite, celestite) model is computed per sample from ionic concentrations, pH, and temperature:
 
-### Base Models
-Three classifiers are independently tuned:
+- Ionic strength `I = 0.5 · Σ cᵢzᵢ²` from all major ions (Ca²⁺, Na⁺, Mg²⁺, Fe²⁺, HCO₃⁻, SO₄²⁻, Cl⁻, CO₃²⁻, Ba²⁺, Sr²⁺)
+- Carbonate concentration back-calculated from bicarbonate and pH
+- A sample is flagged `Scale` if calcite SI > 0 **or** barite/celestite SR > 1
 
-| Model | Library | Hyperparameters Tuned |
-|-------|---------|-----------------------|
-| Random Forest | `sklearn.ensemble.RandomForestClassifier` | `n_estimators`, `max_depth`, `min_samples_split`, `min_samples_leaf`, `max_features`, `max_samples` |
-| XGBoost | `xgboost.XGBClassifier` | `n_estimators`, `max_depth`, `learning_rate`, `subsample`, `colsample_bytree`, `min_child_weight`, `gamma`, `reg_alpha`, `reg_lambda` |
-| SVM | `sklearn.svm.SVC` (probability=True) | `C`, `gamma`, `kernel` (and `degree` for poly) |
+The Davies activity-coefficient correction and temperature-dependent Ksp machinery (calcite, barite, celestite) are retained in the code for methodological completeness but are excluded from the reported results table, per the paper's final scope.
 
-### Hyperparameter Optimisation
-**Optuna** (TPE sampler) runs 5 trials per model, maximising mean **ROC‑AUC** across
-5‑fold stratified CV. The best hyperparameters are used for final evaluation.
+### ML Classifiers
 
-### Thermodynamic Model
-Physics‑based predictions are computed on the test set:
+Five classifiers are independently tuned with **Optuna** (40 trials each, 5-fold stratified CV, ROC-AUC objective), each wrapped in an imbalanced-learn `Pipeline` with `RobustScaler` + `ADASYN` oversampling:
 
-- **Calcite SI** = log₁₀( [Ca²⁺]·[CO₃²⁻] ) – logKsp₍T₎  
-- **Barite SR** = ( [Ba²⁺]·[SO₄²⁻] ) / Ksp_barite  
-- **Celestite SR** = ( [Sr²⁺]·[SO₄²⁻] ) / Ksp_celestite  
+<div align="center">
 
-Scale is predicted if **any** of the three indices indicates scaling (SI > 0 or SR > 1).
-A pseudo‑probability is constructed for ROC‑AUC evaluation.
+| Model | Library |
+|:---:|:---:|
+| Random Forest | `scikit-learn` |
+| Extra Trees | `scikit-learn` |
+| XGBoost | `xgboost` |
+| LightGBM | `lightgbm` |
+| MLP | `scikit-learn` |
+
+</div>
+
+Each model is trained twice — with and without ADASYN — to isolate the resampling effect. All final metrics are computed on a single untouched, stratified 25% test split (`random_state=5`).
+
+### Reproducibility Design
+
+- **Part G** saves every fitted pipeline (with & without ADASYN, 10 models total) plus the train/test split, feature names, and thermodynamic-model outputs to `./saved_models/` via `joblib`.
+- **Part H** (in the same script) deletes all in-memory models/results, reloads everything from `./saved_models/`, and regenerates every table and figure a second time — confirming bit-for-bit reproducibility from disk alone.
+- `reproduce.py` is the standalone companion script: run the main pipeline **once**, then use this script any time afterward to regenerate all tables/figures (plus bootstrap 95% confidence intervals) without rerunning Optuna or retraining.
 
 ---
 
-## Key Results
+## Results
 
-### 1. ML Model Comparison (With ADASYN)
-After optimisation, all models are evaluated on the untouched test set. The bar chart below
-compares accuracy, F1 (weighted), and ROC‑AUC. The best model (highest ROC‑AUC) is selected.
+All models are evaluated on the held-out test set across seven metrics: Accuracy, Precision, Recall, Specificity, F1, MCC, and ROC-AUC.
 
-![Model Comparison](images/aoc_roc.png)
+<div align="center">
 
+| Model | Accuracy | Precision | Recall | Specificity | F1 | MCC | ROC-AUC |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **XGBoost** | — | — | — | — | — | — | — |
+| LightGBM | — | — | — | — | — | — | — |
+| Extra Trees | — | — | — | — | — | — | — |
+| Random Forest | — | — | — | — | — | — | — |
+| MLP | — | — | — | — | — | — | — |
+| Thermodynamic | — | — | — | — | — | — | — |
 
-### 2. Confusion Matrices – All Models
-Side‑by‑side confusion matrices show how each classifier distinguishes between scale and
-no‑scale incidents.
+*(populate from `final_results_table.csv` / `classification_reports.xlsx` after running the pipeline)*
 
-![Confusion Matrices](images/confusion_matrices_comparison.png)
+</div>
 
+The full per-class classification report for every model (precision/recall/F1/support) is exported to `classification_reports.xlsx`, one sheet per model, alongside a formatted summary sheet.
 
-### 3. Feature Importance
-Gain‑based feature importance is extracted for the tree‑based models (Random Forest &
-XGBoost). The top 15 features are displayed; they highlight the most influential
-physicochemical parameters.
+---
 
-![Feature Importance](images/feature_importance.png)
+## Visualisations
 
+The pipeline produces the following figures (each saved twice: once from the first training pass, once reproduced from the reloaded saved models, with a `_reloaded` / `_reproduced` suffix):
 
-### 4. ADASYN Impact
-A direct comparison of each model with and without ADASYN shows how synthetic oversampling
-improves performance (especially F1 and ROC‑AUC) on the minority class.
+### A2 · AI Models vs. Thermodynamic Baseline
+Horizontal bar comparison across Accuracy, Precision, Recall, and F1 for all six models side by side.
+`A2_ai_vs_thermo_all_metrics.png`
 
-![ADASYN Comparison](images/adasyn_comparison.png)
+### B · Combined Confusion Matrices
+One panel per model (all 6), showing predicted vs. actual scale classification on the test set.
+`B_confusion_matrices_combined.png`
 
-### 5. Final Showdown: Random Forest vs Thermodynamics
-The concluding comparison puts the best ML model (often Random Forest) head‑to‑head with
-the thermodynamic rules. The side‑by‑side confusion matrices reveal the trade‑offs between
-data‑driven and physics‑based approaches.
+### C · ADASYN Resampling Effect
+- **C1** — grouped bar chart of Accuracy / F1 / ROC-AUC, with vs. without ADASYN, for all 5 ML models.
+- **C2** — confusion-matrix comparison for the single best-performing model, with vs. without ADASYN.
 
-![Thermodynamic Confusion Matrix](images/thermo_confusion_matrix.png)
+`C1_adasyn_comparison.png`, `C2_best_model_cm_adasyn_vs_none.png`
+
+### D · Combined ROC-AUC Curves
+ROC curves for all 6 models (5 ML + thermodynamic) overlaid on one axis with AUC in the legend.
+`D_roc_curves_all_models.png`
+
+### E · Permutation Importance
+Top-10 permutation importance (mean ROC-AUC drop) for each of the 5 ML models, one combined multi-panel figure.
+`E_permutation_importance_all_models.png`
+
+### F · SHAP Analysis (Best Model Only)
+SHAP summary (beeswarm) and bar-importance plots for the single best-performing ML model, restricted to the `Scale` class.
+`F_shap_summary_best_model.png`, `F_shap_bar_best_model.png`
+
+---
+
+## Repository Structure
+
+```
+.
+├── scale_prediction_results_pipeline.py   # main pipeline: train, tune, evaluate, save, reload, verify
+├── reproduce.py                           # standalone: reload saved models -> regenerate all figures + bootstrap CIs
+├── saved_models/                          # created on first run — fitted pipelines + results bundle
+│   ├── Random_Forest_pipeline.joblib
+│   ├── Random_Forest_no_adasyn_pipeline.joblib
+│   ├── Extra_Trees_pipeline.joblib
+│   ├── ...
+│   └── results_bundle.joblib
+├── final_results_table.csv
+├── classification_reports.xlsx
+├── bootstrap_ci_table.csv                 # produced by reproduce.py
+└── *.png                                  # all figures listed above
+```
+
+---
+
+## How to Run
+
+**1. Install dependencies**
+
+```bash
+pip install numpy pandas matplotlib seaborn scikit-learn xgboost lightgbm optuna imbalanced-learn shap joblib openpyxl
+```
+
+**2. Point the script at your dataset**
+
+Edit `DATA_PATH` in `scale_prediction_results_pipeline.py` to your Excel file. Expected columns include T, P, pH, and major ion concentrations (Ca²⁺, Na⁺, Mg²⁺, Fe²⁺, HCO₃⁻, SO₄²⁻, Cl⁻, CO₃²⁻, Ba²⁺, Sr²⁺), plus a binary target column named `Inspection Result`.
+
+**3. Run the full pipeline (tunes, trains, evaluates, saves, and self-verifies)**
+
+```bash
+python scale_prediction_results_pipeline.py
+```
+
+This trains and Optuna-tunes all 5 ML models, evaluates everything against the thermodynamic baseline, saves every model to `./saved_models/`, then reloads them from disk and regenerates every result a second time to confirm reproducibility.
+
+**4. Regenerate figures later without retraining**
+
+```bash
+python reproduce.py
+```
+
+Loads the saved pipelines and results bundle, recomputes all metrics/figures from the fitted models, and additionally computes 2000-sample bootstrap 95% confidence intervals for Accuracy, Precision, Recall, F1, and ROC-AUC (`bootstrap_ci_table.csv`).
+
+---
+
+<div align="center">
+  <sub>Developed as part of a research pipeline in Petroleum Engineering — flow assurance / scale prediction</sub>
+</div>
