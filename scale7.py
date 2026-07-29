@@ -42,6 +42,47 @@ section):
      block to re-run any time you just want to regenerate figures without
      repeating Optuna tuning.
 
+  5) THERMODYNAMIC MODEL — SI-ONLY VERSION (per author's request):
+     The "naive" thermodynamic baseline (the one actually used in every
+     results table/figure below) now computes the Saturation Index (SI)
+     UNIFORMLY for all three minerals — calcite, barite, and celestite —
+     using the same logarithmic definition:
+
+         SI = log10(IAP / Ksp)
+
+     Previously, barite and celestite were scored with a linear Saturation
+     Ratio (SR = IAP/Ksp) while calcite used the logarithmic SI, an
+     inconsistency in scale between minerals. barite_SR_naive() and
+     celestite_SR_naive() have been replaced with barite_SI_naive() and
+     celestite_SI_naive(), both returning log10(IAP/Ksp), so all three
+     minerals are directly comparable and share one physical threshold
+     (SI = 0). The binary decision rule and the continuous risk score used
+     for ROC-AUC have been updated to match (see Section 6 and Section 8
+     below). The "corrected" (activity/Davies-based) functions in Section 7
+     are left untouched, kept only for the Methods-section narrative and
+     not used in any reported result.
+
+  6) HALITE (NaCl) AND GYPSUM (CaSO4) ADDED (per author's request):
+     The thermodynamic baseline now covers FIVE scale-forming minerals
+     instead of three: calcite (CaCO3), barite (BaSO4), celestite (SrSO4),
+     halite (NaCl), and gypsum (CaSO4). Both new minerals follow the exact
+     same SI = log10(IAP/Ksp) convention as the other three, in both the
+     "naive" (Section 6, fixed Ksp constants, actually used in the results)
+     and the "corrected" (Section 7, Davies activity coefficients + a
+     temperature-dependent Ksp, Methods-narrative only) implementations.
+     The binary decision (Section 8) and the continuous risk score are
+     extended to the OR-logic / max-sigmoid across all five minerals.
+     NOTE: the Davies equation is strictly valid only up to moderate ionic
+     strength (I ~ 0.5 mol/kg); halite-saturated brines routinely exceed
+     this range, so the "corrected" halite SI should be interpreted with
+     added caution and is, in any case, not used in the reported results.
+     The temperature-dependent Ksp expressions for halite and gypsum used
+     in Section 7 are simplified empirical fits intended to preserve the
+     same functional style as the existing barite/celestite correlations,
+     not literature-calibrated equations of state; this is an acknowledged
+     simplification, consistent with the pressure-independence limitation
+     already noted for the other three minerals.
+
 Requires: pip install shap   (in addition to the original dependencies)
 
 Author: pejma (enhanced, results-section revision)
@@ -342,16 +383,44 @@ def logKsp_celestite(T_K):
     T_C = T_K - 273.15
     return -6.63 - 0.0022 * T_C + 0.0000091 * (T_C ** 2)
 
+def logKsp_halite(T_K):
+    """Simplified empirical fit (same functional style as barite/celestite
+    above): NaCl solubility increases mildly with temperature, so logKsp
+    rises slightly with T_C relative to the 25 degC reference (logKsp=1.57).
+    Not a literature-calibrated equation of state — see module docstring
+    item 6."""
+    T_C = T_K - 273.15
+    return 1.57 + 0.00069 * (T_C - 25)
+
+def logKsp_gypsum(T_K):
+    """Simplified empirical fit (same functional style as barite/celestite
+    above): gypsum solubility first rises then falls with temperature,
+    approximated here with a downward-curving quadratic relative to the
+    25 degC reference (logKsp=-4.50). Not a literature-calibrated equation
+    of state — see module docstring item 6."""
+    T_C = T_K - 273.15
+    return -4.50 - 0.0011 * (T_C - 25) - 0.0000068 * (T_C - 25) ** 2
+
 def estimate_carbonate_from_ph(hco3_mol, ph):
     hco3_mol = max(hco3_mol, 1e-10)
     ratio = 10 ** (ph - 10.3)
     return max(hco3_mol * ratio, 1e-10)
 
 # =============================================================================
-# 6) NAIVE (uncorrected) SI / SR  -- this IS used in the final results
+# 6) NAIVE THERMODYNAMIC MODEL — SI computed UNIFORMLY for calcite, barite,
+#    and celestite. This IS the model used in the final results below.
+#
+#    SI = log10( IAP / Ksp )
+#
+#    All three minerals share the same logarithmic definition, so a single
+#    physical threshold (SI = 0) applies consistently across the board.
+#    Ksp values here are the simple, non-activity-corrected constants
+#    (no Davies correction, no full P,T-dependence) — hence "naive" — but
+#    they are still all expressed on the same log(IAP/Ksp) scale.
 # =============================================================================
 
 def calcite_SI_naive(row):
+    """SI(CaCO3) = log10(IAP) - logKsp, with a mildly temperature-adjusted logKsp."""
     try:
         Ca_mol = get_molar(row, col_Ca, MW['Ca'])
         HCO3_mol = get_molar(row, col_HCO3, MW['HCO3'])
@@ -364,27 +433,56 @@ def calcite_SI_naive(row):
     except Exception:
         return np.nan
 
-def barite_SR_naive(row):
+def barite_SI_naive(row):
+    """SI(BaSO4) = log10(IAP / Ksp), Ksp = 1e-10 (naive, non-activity-corrected)."""
     try:
         Ba_mol = get_molar(row, col_Ba, MW['Ba'])
         SO4_mol = get_molar(row, col_SO4, MW['SO4'])
         IAP = max(Ba_mol, 1e-10) * max(SO4_mol, 1e-10)
-        return IAP / 1e-10
+        Ksp = 1e-10
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-def celestite_SR_naive(row):
+def celestite_SI_naive(row):
+    """SI(SrSO4) = log10(IAP / Ksp), Ksp = 10^-6.63 (naive, non-activity-corrected)."""
     try:
         Sr_mol = get_molar(row, col_Sr, MW['Sr'])
         SO4_mol = get_molar(row, col_SO4, MW['SO4'])
         IAP = max(Sr_mol, 1e-10) * max(SO4_mol, 1e-10)
-        return IAP / (10 ** -6.63)
+        Ksp = 10 ** -6.63
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+def halite_SI_naive(row):
+    """SI(NaCl) = log10(IAP / Ksp), Ksp = 37.7 (naive, non-activity-corrected,
+    25 degC reference value for Na+ x Cl- in mol^2/L^2)."""
+    try:
+        Na_mol = get_molar(row, col_Na, MW['Na'])
+        Cl_mol = get_molar(row, col_Cl, MW['Cl'])
+        IAP = max(Na_mol, 1e-10) * max(Cl_mol, 1e-10)
+        Ksp = 37.7
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+def gypsum_SI_naive(row):
+    """SI(CaSO4.2H2O) = log10(IAP / Ksp), Ksp = 3.14e-5 (naive, non-activity-
+    corrected, 25 degC reference value for Ca2+ x SO4^2- in mol^2/L^2)."""
+    try:
+        Ca_mol = get_molar(row, col_Ca, MW['Ca'])
+        SO4_mol = get_molar(row, col_SO4, MW['SO4'])
+        IAP = max(Ca_mol, 1e-10) * max(SO4_mol, 1e-10)
+        Ksp = 3.14e-5
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
 # =============================================================================
-# 7) CORRECTED (activity-based) SI / SR — kept for Methods narrative only.
-#    NOT used anywhere in the results table/figures below.
+# 7) CORRECTED (activity-based) SI — kept for Methods narrative only.
+#    NOT used anywhere in the results table/figures below. All three
+#    minerals already share the same log10(IAP/Ksp) SI definition here.
 # =============================================================================
 
 def calcite_SI_corrected(row):
@@ -398,12 +496,12 @@ def calcite_SI_corrected(row):
         gamma_Ca = activity_coefficient_davies(2, I, T_K)
         gamma_CO3 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Ca * max(Ca_mol, 1e-10)) * (gamma_CO3 * CO3_mol)
-        logKsp = logKsp_calcite(T_K)
-        return np.log10(IAP) - logKsp
+        Ksp = 10 ** logKsp_calcite(T_K)
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-def barite_SR_corrected(row):
+def barite_SI_corrected(row):
     try:
         T_K = to_kelvin(row[col_T])
         I = ionic_strength(row)
@@ -413,11 +511,11 @@ def barite_SR_corrected(row):
         gamma_SO4 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Ba * max(Ba_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
         Ksp = 10 ** logKsp_barite(T_K)
-        return IAP / Ksp
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-def celestite_SR_corrected(row):
+def celestite_SI_corrected(row):
     try:
         T_K = to_kelvin(row[col_T])
         I = ionic_strength(row)
@@ -427,42 +525,81 @@ def celestite_SR_corrected(row):
         gamma_SO4 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Sr * max(Sr_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
         Ksp = 10 ** logKsp_celestite(T_K)
-        return IAP / Ksp
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+def halite_SI_corrected(row):
+    """SI(NaCl) = log10( [gamma_Na * Na_mol] * [gamma_Cl * Cl_mol] / Ksp ).
+    NOTE: the Davies equation is only strictly valid up to I ~ 0.5 mol/kg;
+    halite-saturated brines frequently exceed this range (see module
+    docstring item 6), so this value should be treated as approximate."""
+    try:
+        T_K = to_kelvin(row[col_T])
+        I = ionic_strength(row)
+        Na_mol = get_molar(row, col_Na, MW['Na'])
+        Cl_mol = get_molar(row, col_Cl, MW['Cl'])
+        gamma_Na = activity_coefficient_davies(1, I, T_K)
+        gamma_Cl = activity_coefficient_davies(1, I, T_K)
+        IAP = (gamma_Na * max(Na_mol, 1e-10)) * (gamma_Cl * max(Cl_mol, 1e-10))
+        Ksp = 10 ** logKsp_halite(T_K)
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+def gypsum_SI_corrected(row):
+    """SI(CaSO4.2H2O) = log10( [gamma_Ca * Ca_mol] * [gamma_SO4 * SO4_mol] / Ksp )."""
+    try:
+        T_K = to_kelvin(row[col_T])
+        I = ionic_strength(row)
+        Ca_mol = get_molar(row, col_Ca, MW['Ca'])
+        SO4_mol = get_molar(row, col_SO4, MW['SO4'])
+        gamma_Ca = activity_coefficient_davies(2, I, T_K)
+        gamma_SO4 = activity_coefficient_davies(2, I, T_K)
+        IAP = (gamma_Ca * max(Ca_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
+        Ksp = 10 ** logKsp_gypsum(T_K)
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
 # =============================================================================
-# 8) APPLY NAIVE THERMODYNAMIC MODEL TO TEST SET
+# 8) APPLY NAIVE THERMODYNAMIC MODEL TO TEST SET  (SI-only, all 5 minerals)
 # =============================================================================
 
 thermo_df = X_test.copy()
 thermo_df["I"]                  = thermo_df.apply(ionic_strength, axis=1)
 thermo_df["Calcite_SI_naive"]   = thermo_df.apply(calcite_SI_naive, axis=1)
-thermo_df["Barite_SR_naive"]    = thermo_df.apply(barite_SR_naive, axis=1)
-thermo_df["Celestite_SR_naive"] = thermo_df.apply(celestite_SR_naive, axis=1)
+thermo_df["Barite_SI_naive"]    = thermo_df.apply(barite_SI_naive, axis=1)
+thermo_df["Celestite_SI_naive"] = thermo_df.apply(celestite_SI_naive, axis=1)
+thermo_df["Halite_SI_naive"]    = thermo_df.apply(halite_SI_naive, axis=1)
+thermo_df["Gypsum_SI_naive"]    = thermo_df.apply(gypsum_SI_naive, axis=1)
 
-def thermo_decision(df_, si_col, sr_cols, threshold_si=0.0, threshold_sr=1.0):
-    calcite_pred = (df_[si_col] > threshold_si).astype(int)
-    other_preds = [(df_[c] > threshold_sr).astype(int) for c in sr_cols]
-    combined = calcite_pred.copy()
-    for p in other_preds:
-        combined = combined | p
+SI_COLS_NAIVE = ["Calcite_SI_naive", "Barite_SI_naive", "Celestite_SI_naive",
+                  "Halite_SI_naive", "Gypsum_SI_naive"]
+
+def thermo_decision(df_, si_cols, threshold_si=0.0):
+    """Scale-forming if SI > 0 for ANY of the five minerals (OR-logic),
+    all five evaluated on the same log10(IAP/Ksp) scale."""
+    combined = (df_[si_cols[0]] > threshold_si).astype(int)
+    for c in si_cols[1:]:
+        combined = combined | (df_[c] > threshold_si).astype(int)
     return combined
 
-y_pred_thermo_naive = thermo_decision(
-    thermo_df, "Calcite_SI_naive", ["Barite_SR_naive", "Celestite_SR_naive"]
-).values
+y_pred_thermo_naive = thermo_decision(thermo_df, SI_COLS_NAIVE).values
 y_true = y_test.values
 
-def thermo_pseudo_proba(df_, si_col, sr_cols):
-    p = 0.4 * (df_[si_col] > 0).astype(float)
-    w = 0.6 / len(sr_cols)
-    for c in sr_cols:
-        p = p + w * np.clip(df_[c] / 10, 0, 1)
-    return p
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
 
-proba_thermo_naive = thermo_pseudo_proba(thermo_df, "Calcite_SI_naive",
-                                          ["Barite_SR_naive", "Celestite_SR_naive"])
+def thermo_risk_score(df_, si_cols):
+    """Continuous risk score for ROC-AUC: sigmoid(SI) per mineral, anchored
+    at the physical equilibrium point SI = 0, with the overall score taken
+    as the maximum across the five minerals (mirrors the OR-logic used for
+    the binary decision above)."""
+    risks = [sigmoid(df_[c].values) for c in si_cols]
+    return np.maximum.reduce(risks)
+
+proba_thermo_naive = thermo_risk_score(thermo_df, SI_COLS_NAIVE)
 
 def safe_auc(y_true_, proba_):
     try:
@@ -488,7 +625,7 @@ def compute_thermo_metrics(y_te, y_pred, y_proba):
 metrics_thermo_naive = compute_thermo_metrics(y_true, y_pred_thermo_naive, proba_thermo_naive)
 
 print("\n" + "=" * 80)
-print("Thermodynamic Model (NAIVE)")
+print("Thermodynamic Model (SI-only, calcite + barite + celestite + halite + gypsum)")
 print("=" * 80)
 print(f"Thermodynamic -> Acc: {metrics_thermo_naive['Accuracy']:.4f} | "
       f"Prec: {metrics_thermo_naive['Precision']:.4f} | Rec: {metrics_thermo_naive['Recall']:.4f} | "
