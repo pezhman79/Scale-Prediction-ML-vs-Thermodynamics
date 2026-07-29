@@ -1,27 +1,62 @@
 # -*- coding: utf-8 -*-
 """
-Reproduce Plots From Saved Models — CORRECTED THERMODYNAMIC MODEL VERSION
+Reproduce Plots From Saved Models — CORRECTED THERMODYNAMIC MODEL VERSION (ALL-SI)
 =============================================================================
 Companion script to `scale_prediction_results_pipeline.py`.
 
 WHAT CHANGED vs. the previous reproduce script (per author's request):
   - The thermodynamic baseline is now computed using the ACTIVITY-CORRECTED
-    (Davies equation) saturation index / saturation ratio, with
-    temperature-dependent Ksp for calcite, barite, and celestite — i.e. the
-    functions that were already written in the main pipeline
-    (`calcite_SI_corrected`, `barite_SR_corrected`, `celestite_SR_corrected`,
-    `logKsp_calcite/barite/celestite`, `activity_coefficient_davies`) but were
-    previously left unused ("kept for Methods narrative only"). They are now
-    the ones actually driving Table 3 / Fig. 5 / Fig. 9, matching Eq. (4) in
-    the manuscript (SR = a_Me*a_An / Ksp(P,T,I)) literally, not just in name.
+    (Davies equation) Saturation Index (SI), with temperature-dependent Ksp
+    for calcite, barite, celestite, gypsum, and halite — and, crucially,
+    ALL FIVE minerals now use the SAME logarithmic SI definition:
+
+        SI = log10( IAP / Ksp ) = log10( [gamma_cation * C_cation] *
+                                          [gamma_anion  * C_anion ] / Ksp )
+
+    This matches the textbook formulation literally (see the worked
+    examples SI(CaCO3) = log10([Ca][CO3]/Ksp) = 0.83 and
+    SI(BaSO4) = log10([Ba][SO4]/Ksp) = 1.99), where SI > 0 means
+    supersaturated (scale-forming risk), SI = 0 is equilibrium, and
+    SI < 0 is undersaturated.
+
+    Previously, barite and celestite were computed as a *linear* saturation
+    ratio (SR = IAP/Ksp) while calcite used the *logarithmic* SI — an
+    inconsistency in units/scale between minerals. That has been corrected:
+    barite_SI_corrected(), celestite_SI_corrected(), gypsum_SI_corrected(),
+    and halite_SI_corrected() now all return log10(IAP/Ksp) exactly like
+    calcite_SI_corrected(), so the five minerals are directly comparable
+    and use one consistent physical threshold (SI = 0) everywhere.
+
+  - GYPSUM (CaSO4.2H2O) and HALITE (NaCl) have been added as two additional
+    scale-forming minerals alongside calcite, barite, and celestite:
+      * Gypsum uses divalent activity coefficients (z=2) for Ca2+ and SO4^2-,
+        exactly like barite/celestite, but with its own T-dependent Ksp that
+        captures gypsum's known RETROGRADE solubility (solubility decreases
+        above ~40 C).
+      * Halite uses MONOVALENT activity coefficients (z=1) for Na+ and Cl-,
+        since the Davies equation is z^2-dependent and Na+/Cl- are
+        singly-charged — this is physically correct and distinct from the
+        other four (all divalent) minerals.
+      * NOTE: the logKsp_gypsum() and logKsp_halite() correlations below are
+        approximate engineering fits anchored at well-known 25 C reference
+        values (gypsum Ksp ~ 2.6e-5, halite Ksp ~ 38), reproducing the
+        correct qualitative T-trend (gypsum solubility down with T above
+        ~40 C; halite solubility slightly up with T). They are NOT taken
+        verbatim from a single cited source — replace with a validated
+        Pitzer-type correlation before using in a peer-reviewed manuscript.
+
+  - The binary thermo_decision() label is now "SI > 0 for ANY of the five
+    minerals" (OR-logic), all on the same SI scale.
+
   - The continuous risk score used to compute ROC-AUC for the thermodynamic
-    model (previously an arbitrary 0.4/0.6-weighted, /10-scaled heuristic)
-    is replaced with a principled, threshold-anchored score: a logistic
-    (sigmoid) transform of each mineral's own SI / log10(SR), anchored at
-    the physical equilibrium point (SI=0 or SR=1), and the OVERALL score
-    is the maximum across the three minerals — i.e. "the well is at risk if
-    ANY one of the three minerals is supersaturated," which mirrors the
-    OR-logic already used for the binary thermo_decision() label.
+    model is a logistic (sigmoid) transform of each mineral's own SI,
+    anchored at the physical equilibrium point SI = 0. The OVERALL score is
+    the maximum across the five minerals, mirroring the OR-logic used for
+    the binary label.
+
+  - The activity coefficients are still computed from the Davies equation
+    (temperature-dependent Debye-Huckel A parameter + ionic strength),
+    exactly as before — this part was correct and is left unchanged.
 
 NO ML MODEL IS RETRAINED HERE. All 5 ML pipelines (with & without ADASYN)
 are loaded from ./saved_models/ exactly as before; only the thermodynamic
@@ -46,7 +81,8 @@ import joblib
 import shap
 
 from sklearn.metrics import (confusion_matrix, roc_auc_score, f1_score, roc_curve,
-                              accuracy_score, matthews_corrcoef, precision_score, recall_score)
+                              accuracy_score, matthews_corrcoef, precision_score, recall_score,
+                              classification_report)
 from sklearn.inspection import permutation_importance
 
 # ---------------------------------------------------------------------------
@@ -145,8 +181,10 @@ def to_display(names):
 feature_names_display = to_display(feature_names)
 
 # =============================================================================
-# 2) CORRECTED THERMODYNAMIC MODEL  (activity-based SI/SR, T-dependent Ksp)
+# 2) CORRECTED THERMODYNAMIC MODEL  (activity-based SI, T-dependent Ksp)
 #    Recomputed here from RAW X_test columns — no ML retraining involved.
+#    ALL FIVE minerals (calcite, barite, celestite, gypsum, halite) now
+#    share the SAME logarithmic SI definition: SI = log10(IAP/Ksp).
 # =============================================================================
 
 def find_col(possible_names, columns):
@@ -222,104 +260,163 @@ def logKsp_celestite(T_K):
     T_C = T_K - 273.15
     return -6.63 - 0.0022 * T_C + 0.0000091 * (T_C ** 2)
 
+def logKsp_gypsum(T_K):
+    """
+    Empirical logKsp for gypsum (CaSO4.2H2O), T-dependent.
+    Anchored at logKsp(25 C) ~= -4.58 (Ksp ~ 2.6e-5), with the known
+    RETROGRADE solubility behavior of gypsum (solubility decreases
+    above ~40 C) captured as a decreasing logKsp with increasing T.
+    NOTE: approximate engineering correlation — replace with a
+    published Pitzer-model fit if used for a peer-reviewed manuscript.
+    """
+    T_C = T_K - 273.15
+    dT = T_C - 25.0
+    return -4.58 - 0.0023 * dT - 0.00006 * (dT ** 2)
+
+def logKsp_halite(T_K):
+    """
+    Empirical logKsp for halite (NaCl), T-dependent.
+    Anchored at logKsp(25 C) ~= 1.58 (Ksp ~ 38, consistent with NaCl
+    solubility ~6.15 mol/kg), with the known slight INCREASE in
+    NaCl solubility as temperature rises.
+    NOTE: approximate engineering correlation — replace with a
+    published Pitzer-model fit if used for a peer-reviewed manuscript.
+    """
+    T_C = T_K - 273.15
+    dT = T_C - 25.0
+    return 1.58 + 0.00285 * dT - 0.000004 * (dT ** 2)
+
 def estimate_carbonate_from_ph(hco3_mol, ph):
     hco3_mol = max(hco3_mol, 1e-10)
     ratio = 10 ** (ph - 10.3)
     return max(hco3_mol * ratio, 1e-10)
 
 def calcite_SI_corrected(row):
+    """SI(CaCO3) = log10( [gamma_Ca * Ca_mol] * [gamma_CO3 * CO3_mol] / Ksp )"""
     try:
         T_K = to_kelvin(row[col_T])
         pH = row[col_pH]
         I = ionic_strength(row)
-        Ca_mol = get_molar(row, col_Ca, MW['Ca'])
+        Ca_mol   = get_molar(row, col_Ca, MW['Ca'])
         HCO3_mol = get_molar(row, col_HCO3, MW['HCO3'])
-        CO3_mol = estimate_carbonate_from_ph(HCO3_mol, pH)
-        gamma_Ca = activity_coefficient_davies(2, I, T_K)
+        CO3_mol  = estimate_carbonate_from_ph(HCO3_mol, pH)
+        gamma_Ca  = activity_coefficient_davies(2, I, T_K)
         gamma_CO3 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Ca * max(Ca_mol, 1e-10)) * (gamma_CO3 * CO3_mol)
-        logKsp = logKsp_calcite(T_K)
-        return np.log10(IAP) - logKsp
+        Ksp = 10 ** logKsp_calcite(T_K)
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-def barite_SR_corrected(row):
+def barite_SI_corrected(row):
+    """SI(BaSO4) = log10( [gamma_Ba * Ba_mol] * [gamma_SO4 * SO4_mol] / Ksp )"""
     try:
         T_K = to_kelvin(row[col_T])
         I = ionic_strength(row)
-        Ba_mol = get_molar(row, col_Ba, MW['Ba'])
+        Ba_mol  = get_molar(row, col_Ba, MW['Ba'])
         SO4_mol = get_molar(row, col_SO4, MW['SO4'])
-        gamma_Ba = activity_coefficient_davies(2, I, T_K)
+        gamma_Ba  = activity_coefficient_davies(2, I, T_K)
         gamma_SO4 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Ba * max(Ba_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
         Ksp = 10 ** logKsp_barite(T_K)
-        return IAP / Ksp
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-def celestite_SR_corrected(row):
+def celestite_SI_corrected(row):
+    """SI(SrSO4) = log10( [gamma_Sr * Sr_mol] * [gamma_SO4 * SO4_mol] / Ksp )"""
     try:
         T_K = to_kelvin(row[col_T])
         I = ionic_strength(row)
-        Sr_mol = get_molar(row, col_Sr, MW['Sr'])
+        Sr_mol  = get_molar(row, col_Sr, MW['Sr'])
         SO4_mol = get_molar(row, col_SO4, MW['SO4'])
-        gamma_Sr = activity_coefficient_davies(2, I, T_K)
+        gamma_Sr  = activity_coefficient_davies(2, I, T_K)
         gamma_SO4 = activity_coefficient_davies(2, I, T_K)
         IAP = (gamma_Sr * max(Sr_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
         Ksp = 10 ** logKsp_celestite(T_K)
-        return IAP / Ksp
+        return np.log10(IAP / Ksp)
     except Exception:
         return np.nan
 
-print("\nRecomputing CORRECTED (activity-based) thermodynamic model on X_test...")
+def gypsum_SI_corrected(row):
+    """SI(CaSO4.2H2O) = log10( [gamma_Ca * Ca_mol] * [gamma_SO4 * SO4_mol] / Ksp )"""
+    try:
+        T_K = to_kelvin(row[col_T])
+        I = ionic_strength(row)
+        Ca_mol  = get_molar(row, col_Ca, MW['Ca'])
+        SO4_mol = get_molar(row, col_SO4, MW['SO4'])
+        gamma_Ca  = activity_coefficient_davies(2, I, T_K)
+        gamma_SO4 = activity_coefficient_davies(2, I, T_K)
+        IAP = (gamma_Ca * max(Ca_mol, 1e-10)) * (gamma_SO4 * max(SO4_mol, 1e-10))
+        Ksp = 10 ** logKsp_gypsum(T_K)
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+def halite_SI_corrected(row):
+    """SI(NaCl) = log10( [gamma_Na * Na_mol] * [gamma_Cl * Cl_mol] / Ksp )
+    NOTE: z=1 for Na+/Cl- (monovalent), unlike the other four (divalent)
+    minerals — this is the physically correct exponent for the
+    Davies activity-coefficient equation, which scales with z^2."""
+    try:
+        T_K = to_kelvin(row[col_T])
+        I = ionic_strength(row)
+        Na_mol = get_molar(row, col_Na, MW['Na'])
+        Cl_mol = get_molar(row, col_Cl, MW['Cl'])
+        gamma_Na = activity_coefficient_davies(1, I, T_K)
+        gamma_Cl = activity_coefficient_davies(1, I, T_K)
+        IAP = (gamma_Na * max(Na_mol, 1e-10)) * (gamma_Cl * max(Cl_mol, 1e-10))
+        Ksp = 10 ** logKsp_halite(T_K)
+        return np.log10(IAP / Ksp)
+    except Exception:
+        return np.nan
+
+print("\nRecomputing CORRECTED (activity-based, all-SI) thermodynamic model on X_test...")
 thermo_df = X_test.copy()
 thermo_df["I"]                      = thermo_df.apply(ionic_strength, axis=1)
 thermo_df["Calcite_SI_corrected"]   = thermo_df.apply(calcite_SI_corrected, axis=1)
-thermo_df["Barite_SR_corrected"]    = thermo_df.apply(barite_SR_corrected, axis=1)
-thermo_df["Celestite_SR_corrected"] = thermo_df.apply(celestite_SR_corrected, axis=1)
+thermo_df["Barite_SI_corrected"]    = thermo_df.apply(barite_SI_corrected, axis=1)
+thermo_df["Celestite_SI_corrected"] = thermo_df.apply(celestite_SI_corrected, axis=1)
+thermo_df["Gypsum_SI_corrected"]    = thermo_df.apply(gypsum_SI_corrected, axis=1)
+thermo_df["Halite_SI_corrected"]    = thermo_df.apply(halite_SI_corrected, axis=1)
+
+SI_COLS = ["Calcite_SI_corrected", "Barite_SI_corrected", "Celestite_SI_corrected",
+           "Gypsum_SI_corrected", "Halite_SI_corrected"]
 
 # -----------------------------------------------------------------------
-# Binary decision (unchanged logic): scale-forming if SI>0 for calcite OR
-# SR>1 for barite/celestite -- now driven by the corrected values.
+# Binary decision: scale-forming if SI > 0 for ANY of the five minerals.
+# All five minerals now share the SAME threshold on the SAME (log) scale,
+# so the OR-logic is applied consistently.
 # -----------------------------------------------------------------------
 
-def thermo_decision(df_, si_col, sr_cols, threshold_si=0.0, threshold_sr=1.0):
-    calcite_pred = (df_[si_col] > threshold_si).astype(int)
-    other_preds = [(df_[c] > threshold_sr).astype(int) for c in sr_cols]
-    combined = calcite_pred.copy()
-    for p in other_preds:
-        combined = combined | p
+def thermo_decision(df_, si_cols, threshold_si=0.0):
+    combined = (df_[si_cols[0]] > threshold_si).astype(int)
+    for c in si_cols[1:]:
+        combined = combined | (df_[c] > threshold_si).astype(int)
     return combined
 
-y_pred_thermo = thermo_decision(
-    thermo_df, "Calcite_SI_corrected", ["Barite_SR_corrected", "Celestite_SR_corrected"]
-).values
+y_pred_thermo = thermo_decision(thermo_df, SI_COLS).values
 
 # -----------------------------------------------------------------------
 # Continuous risk score for ROC-AUC — principled replacement for the old
 # arbitrary 0.4/0.6-weighted, /10-scaled heuristic.
 #
-# Each mineral's own equilibrium departure is mapped through a logistic
-# (sigmoid) function, anchored at its own physical equilibrium point:
-#   - calcite:   sigmoid(SI)                     [SI=0 is equilibrium]
-#   - barite:    sigmoid(log10(SR))               [SR=1 -> log10(SR)=0]
-#   - celestite: sigmoid(log10(SR))               [SR=1 -> log10(SR)=0]
-# The OVERALL risk score is the MAXIMUM across the three minerals, mirroring
-# the OR-logic already used for the binary label above ("the well is at risk
-# if ANY one of the three minerals is supersaturated").
+# Each mineral's own SI is mapped through a logistic (sigmoid) function,
+# anchored at its physical equilibrium point (SI = 0), consistently for
+# all five minerals (calcite, barite, celestite, gypsum, halite). The
+# OVERALL risk score is the MAXIMUM across the five minerals, mirroring
+# the OR-logic already used for the binary label above ("the well is at
+# risk if ANY one of the five minerals is supersaturated").
 # -----------------------------------------------------------------------
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
-def thermo_risk_score(df_, si_col, sr_cols):
-    calcite_risk = sigmoid(df_[si_col].values)
-    sr_risks = [sigmoid(np.log10(np.clip(df_[c].values, 1e-6, None))) for c in sr_cols]
-    return np.maximum.reduce([calcite_risk] + sr_risks)
+def thermo_risk_score(df_, si_cols):
+    risks = [sigmoid(df_[c].values) for c in si_cols]
+    return np.maximum.reduce(risks)
 
-proba_thermo = thermo_risk_score(
-    thermo_df, "Calcite_SI_corrected", ["Barite_SR_corrected", "Celestite_SR_corrected"]
-)
+proba_thermo = thermo_risk_score(thermo_df, SI_COLS)
 
 def safe_auc(y_true_, proba_):
     try:
@@ -345,7 +442,7 @@ def compute_thermo_metrics(y_te, y_pred, y_proba):
 metrics_thermo = compute_thermo_metrics(y_true, y_pred_thermo, proba_thermo)
 
 print("\n" + "=" * 80)
-print("Thermodynamic Model (CORRECTED — activity-based, T-dependent Ksp)")
+print("Thermodynamic Model (CORRECTED — activity-based SI, T-dependent Ksp, 5 minerals)")
 print("=" * 80)
 print(f"Thermodynamic -> Acc: {metrics_thermo['Accuracy']:.4f} | "
       f"Prec: {metrics_thermo['Precision']:.4f} | Rec: {metrics_thermo['Recall']:.4f} | "
@@ -403,10 +500,10 @@ final_comparison = pd.DataFrame(final_rows)
 # =============================================================================
 
 print("\n" + "=" * 80)
-print("(A) FINAL RESULTS TABLE — Thermodynamic (Corrected) vs ML MODELS — ALL METRICS")
+print("(A) FINAL RESULTS TABLE — Thermodynamic (Corrected, 5-mineral SI) vs ML MODELS — ALL METRICS")
 print("=" * 80)
 print(final_comparison.round(4).to_string(index=False))
-final_comparison.round(4).to_csv('final_results_table_corrected_thermo.csv', index=False)
+final_comparison.round(4).to_csv('final_results_table_corrected_thermo_5min.csv', index=False)
 
 # =============================================================================
 # (A2) COMBINED METRIC COMPARISON CHART — AI models + Thermodynamic baseline
@@ -432,7 +529,60 @@ for i, metric in enumerate(A2_METRICS):
 
 fig.suptitle('AI Models vs. Thermodynamic Baseline — Key Metrics Compared',
              y=1.0, fontsize=12, fontweight='bold')
-plt.savefig('A2_ai_vs_thermo_all_metrics_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('A2_ai_vs_thermo_all_metrics_corrected_5min.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# =============================================================================
+# (A3) PER-CLASS PERFORMANCE CHART — Precision/Recall/F1 for Class 0
+#      (No Scale) and Class 1 (Scale), all 6 models, one glance instead of a
+#      long classification-report table
+# =============================================================================
+
+# Predictions dict feeding this chart (and reusable elsewhere, e.g. Excel
+# export): Thermodynamic baseline + all 5 ML models, using the SAME
+# y_pred arrays already computed above (no retraining, no recomputation).
+model_preds_for_excel = {THERMO_LABEL: y_pred_thermo}
+for name in MODEL_NAMES:
+    model_preds_for_excel[name] = results[name]['y_pred']
+
+CLASS_LABELS = ['No Scale', 'Scale']
+PERCLASS_METRICS = ['precision', 'recall', 'f1-score']
+PERCLASS_METRIC_COLORS = {'precision': '#0072B2', 'recall': '#D55E00', 'f1-score': '#009E73'}
+all_model_names_ordered = [THERMO_LABEL] + MODEL_NAMES
+perclass_rows = []
+for cls in CLASS_LABELS:
+    for m in all_model_names_ordered:
+        rep = classification_report(y_true, model_preds_for_excel[m],
+                                     target_names=CLASS_LABELS, output_dict=True)
+        for metric in PERCLASS_METRICS:
+            perclass_rows.append({'Class': cls, 'Model': m, 'Metric': metric,
+                                   'Value': rep[cls][metric]})
+perclass_df = pd.DataFrame(perclass_rows)
+fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+for ax, cls in zip(axes, CLASS_LABELS):
+    sub = perclass_df[perclass_df['Class'] == cls]
+    x = np.arange(len(all_model_names_ordered))
+    width = 0.25
+    for i, metric in enumerate(PERCLASS_METRICS):
+        vals = [sub[(sub['Model'] == m) & (sub['Metric'] == metric)]['Value'].values[0]
+                for m in all_model_names_ordered]
+        bars = ax.bar(x + (i - 1) * width, vals, width,
+                       label=metric.capitalize().replace('-score', '-score'),
+                       color=PERCLASS_METRIC_COLORS[metric], edgecolor='white', linewidth=0.5)
+        for b in bars:
+            h = b.get_height()
+            ax.text(b.get_x() + b.get_width() / 2, h + 0.015, f'{h:.2f}',
+                     ha='center', va='bottom', fontsize=6.5, rotation=90)
+    ax.set_xticks(x)
+    ax.set_xticklabels(all_model_names_ordered, rotation=30, ha='right', fontsize=9)
+    ax.set_title(f'Class: {cls}', fontweight='bold', fontsize=11)
+    ax.set_ylim(0, 1.15)
+    ax.yaxis.set_major_locator(MaxNLocator(6))
+axes[0].set_ylabel('Score')
+axes[0].legend(loc='upper left', ncol=3, fontsize=8, bbox_to_anchor=(0, 1.12))
+fig.suptitle('Per-Class Performance — Precision / Recall / F1-score by Model',
+             y=1.03, fontsize=12, fontweight='bold')
+plt.savefig('A3_per_class_performance_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -460,7 +610,7 @@ for i, (cm, title, color) in enumerate(all_panels):
 
 fig.suptitle('Confusion Matrices — Thermodynamic Baseline vs. Machine-Learning Models',
              y=1.0, fontsize=12, fontweight='bold')
-plt.savefig('B_confusion_matrices_combined_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('B_confusion_matrices_combined_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -508,7 +658,7 @@ for idx, metric in enumerate(metrics_):
         ax.legend(loc='lower center', bbox_to_anchor=(0.5, 1.18), ncol=2, fontsize=9, frameon=True)
 
 fig.suptitle('Effect of ADASYN Resampling on ML Model Performance', y=0.995, fontsize=11, fontweight='bold')
-plt.savefig('C1_adasyn_comparison_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('C1_adasyn_comparison_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -535,7 +685,7 @@ for ax, cm, subtitle in zip(
 
 fig.suptitle('Effect of Resampling on the Best Model\'s Confusion Matrix', y=1.03,
              fontsize=11, fontweight='bold')
-plt.savefig('C2_best_model_cm_adasyn_vs_none_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('C2_best_model_cm_adasyn_vs_none_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -562,7 +712,7 @@ ax.set_title('ROC Curves — ML Models vs. Thermodynamic Baseline', fontweight='
 ax.legend(loc='lower right', fontsize=8)
 ax.set_xlim(0, 1)
 ax.set_ylim(0, 1.02)
-plt.savefig('D_roc_curves_all_models_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('D_roc_curves_all_models_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -602,7 +752,7 @@ if len(MODEL_NAMES) < 6:
     ax_off.axis('off')
 
 fig.suptitle('Permutation Importance — All ML Models (Test Set)', y=1.0, fontsize=12, fontweight='bold')
-plt.savefig('E_permutation_importance_all_models_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('E_permutation_importance_all_models_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -644,18 +794,18 @@ X_test_scaled_display.columns = feature_names_display
 plt.figure(figsize=(8, 7))
 shap.summary_plot(sv_pos, X_test_scaled_display, show=False, plot_size=(8, 7))
 plt.title(f'SHAP Summary — {best_ml_name} (Test Set, class = Scale)', fontweight='bold', fontsize=11)
-plt.savefig('F_shap_summary_best_model_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('F_shap_summary_best_model_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 plt.figure(figsize=(7, 6))
 shap.summary_plot(sv_pos, X_test_scaled_display, plot_type='bar', show=False, plot_size=(7, 6))
 plt.title(f'SHAP Feature Importance — {best_ml_name}', fontweight='bold', fontsize=11)
-plt.savefig('F_shap_bar_best_model_corrected.png', dpi=300, bbox_inches='tight')
+plt.savefig('F_shap_bar_best_model_corrected_5min.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 print("\n" + "=" * 80)
 print("ALL FIGURES REPRODUCED — ML models loaded (not retrained),")
-print("thermodynamic baseline recomputed with activity-corrected SI/SR.")
+print("thermodynamic baseline recomputed with activity-corrected SI (all 5 minerals).")
 print("=" * 80)
 print(final_comparison.round(4).to_string(index=False))
 
@@ -711,4 +861,4 @@ for name, m in bootstrap_results.items():
         row[f'{metric}_CI_low'] = lo
         row[f'{metric}_CI_high'] = hi
     ci_rows.append(row)
-pd.DataFrame(ci_rows).round(4).to_csv('bootstrap_ci_table_corrected.csv', index=False)
+pd.DataFrame(ci_rows).round(4).to_csv('bootstrap_ci_table_corrected_5min.csv', index=False)
